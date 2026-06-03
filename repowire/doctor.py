@@ -27,6 +27,7 @@ import httpx
 from repowire import __version__
 from repowire.config.models import Config
 from repowire.daemon.state.database import SCHEMA_VERSION
+from repowire.mux import MuxProviderKind, resolve_mux_provider
 
 
 class Status(str, Enum):
@@ -64,18 +65,35 @@ def check_python_version(min_version: tuple[int, int] = (3, 10)) -> CheckResult:
     )
 
 
-def check_tmux() -> CheckResult:
-    path = shutil.which("tmux")
+def check_mux(config: Config) -> CheckResult:
+    provider = resolve_mux_provider(config.daemon.mux)
+    if provider.kind == MuxProviderKind.NONE:
+        return CheckResult("Terminal mux", Status.WARN, "none; spawn/injection degraded")
+    path = shutil.which(provider.command)
     if not path:
-        return CheckResult("tmux available", Status.WARN, "not found on PATH")
+        return CheckResult(
+            "Terminal mux",
+            Status.WARN,
+            f"{provider.kind.value} command not found: {provider.command}",
+        )
     try:
         result = subprocess.run(
-            ["tmux", "-V"], capture_output=True, text=True, timeout=5,
+            [provider.command, "-V"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
         )
         version = result.stdout.strip() or "unknown version"
     except (subprocess.TimeoutExpired, FileNotFoundError):
         version = "version check failed"
-    return CheckResult("tmux available", Status.OK, version)
+    return CheckResult("Terminal mux", Status.OK, f"{provider.kind.value}: {version}")
+
+
+def check_tmux() -> CheckResult:
+    """Backward-compatible wrapper for older tests/imports."""
+    return check_mux(Config())
 
 
 def check_package_manager() -> CheckResult:
@@ -614,7 +632,7 @@ def run_all(config: Config, daemon_url: str) -> list[CheckResult]:
     return [
         check_repowire_version(),
         check_python_version(),
-        check_tmux(),
+        check_mux(config),
         check_package_manager(),
         check_update_availability(config),
         check_daemon(daemon_url),

@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 from repowire.hooks._tmux import is_tmux_available
+from repowire.mux import current_mux_provider
 
 logger = logging.getLogger(__name__)
 
@@ -79,23 +80,37 @@ _HOOKS: list[tuple[str, str, str]] = [
 ]
 
 
+def hook_specs(host: str, port: int) -> list[tuple[str, str, str]]:
+    """Return concrete tmux-compatible lifecycle hook specs."""
+    script = str(_RENAME_SCRIPT)
+    specs: list[tuple[str, str, str]] = []
+    for hook_name, flag, cmd_template in _HOOKS:
+        specs.append(
+            (
+                hook_name,
+                flag,
+                cmd_template
+                .replace("{host}", host)
+                .replace("{port}", str(port))
+                .replace("{script}", script),
+            )
+        )
+    return specs
+
+
 def install_hooks(host: str = "127.0.0.1", port: int = 8377) -> list[str]:
     """Install tmux lifecycle hooks. Idempotent.
 
     Returns list of hook names successfully installed.
     """
-    script = str(_RENAME_SCRIPT)
+    provider = current_mux_provider()
+    if provider.command != "tmux":
+        return provider.install_lifecycle_hooks(host, port)
     installed: list[str] = []
-    for hook_name, flag, cmd_template in _HOOKS:
-        cmd = (
-            cmd_template
-            .replace("{host}", host)
-            .replace("{port}", str(port))
-            .replace("{script}", script)
-        )
+    for hook_name, flag, cmd in hook_specs(host, port):
         tmux_cmd = f"run-shell -b -- {shlex.quote(cmd)}"
         result = subprocess.run(
-            ["tmux", "set-hook", flag, f"{hook_name}[{_HOOK_INDEX}]", tmux_cmd],
+            [provider.command, "set-hook", flag, f"{hook_name}[{_HOOK_INDEX}]", tmux_cmd],
             capture_output=True,
             text=True,
             timeout=5,
@@ -115,11 +130,14 @@ def uninstall_hooks() -> list[str]:
 
     Returns list of hook names successfully removed.
     """
+    provider = current_mux_provider()
+    if provider.command != "tmux":
+        return provider.uninstall_lifecycle_hooks()
     removed: list[str] = []
     for hook_name, flag, _ in _HOOKS:
         unsetter = flag + "u"  # -g → -gu, -gw → -gwu
         result = subprocess.run(
-            ["tmux", "set-hook", unsetter, f"{hook_name}[{_HOOK_INDEX}]"],
+            [provider.command, "set-hook", unsetter, f"{hook_name}[{_HOOK_INDEX}]"],
             capture_output=True,
             text=True,
             timeout=5,

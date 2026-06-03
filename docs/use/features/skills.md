@@ -17,19 +17,19 @@ All install channels read the same `skills/` source in the repo.
 Install the pack with `npx skills`:
 
 ```bash
-npx skills add prassanna-ravishankar/repowire
+npx skills add ROHITHGMURALI/repowireplus
 ```
 
 Install one skill:
 
 ```bash
-npx skills add https://github.com/prassanna-ravishankar/repowire/tree/main/skills/cross-agent-review
+npx skills add https://github.com/ROHITHGMURALI/repowireplus/tree/main/skills/cross-agent-review
 ```
 
 Claude Code plugin marketplace installs can also bundle the same skills:
 
 ```text
-/plugin marketplace add prassanna-ravishankar/repowire
+/plugin marketplace add ROHITHGMURALI/repowireplus
 /plugin install repowire@repowire
 ```
 

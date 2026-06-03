@@ -21,6 +21,7 @@ import shutil
 
 from repowire.agent_backends import agent_backend_for
 from repowire.agent_types import AgentType
+from repowire.mux import current_mux_provider
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +83,9 @@ async def _codex_warmup(pane_id: str, message: str) -> None:
     """
     if not pane_id:
         return
-    if not shutil.which("tmux"):
-        logger.warning("codex warmup: tmux binary not found, skipping")
+    mux_command = current_mux_provider().command or "tmux"
+    if not shutil.which(mux_command):
+        logger.warning("codex warmup: mux binary not found, skipping")
         return
 
     await asyncio.sleep(8)
@@ -112,8 +114,9 @@ async def _claude_code_family_seed(pane_id: str, message: str) -> None:
     """
     if not pane_id:
         return
-    if not shutil.which("tmux"):
-        logger.warning("seed-message: tmux binary not found, skipping")
+    mux_command = current_mux_provider().command or "tmux"
+    if not shutil.which(mux_command):
+        logger.warning("seed-message: mux binary not found, skipping")
         return
 
     await asyncio.sleep(5)
@@ -131,7 +134,7 @@ async def _tmux_send(pane_id: str, text: str, *, literal: bool = False) -> None:
               like "C-m" or "Enter".
         literal: When True, pass `-l` so the bytes are not parsed as key names.
     """
-    args = ["tmux", "send-keys", "-t", pane_id]
+    args = [current_mux_provider().command or "tmux", "send-keys", "-t", pane_id]
     if literal:
         args.append("-l")
     args.append(text)

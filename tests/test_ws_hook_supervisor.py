@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import os
 from unittest.mock import patch
 
@@ -14,6 +13,7 @@ from repowire.hooks.utils import (
     ws_hook_lock_path,
     ws_hook_pid_path,
 )
+from repowire.platform.locking import FileLock
 
 PANE_ID = "%99"
 
@@ -129,18 +129,17 @@ class TestMaybeRespawn:
         ws_hook_pid_path(PANE_ID).write_text("99999999")
         _write_meta(PANE_ID, str(cache_dir))
 
-        # Hold the flock from this test process to simulate another ws-hook
+        # Hold the file lock from this test process to simulate another ws-hook
         # owning the pane.
         lock_path = ws_hook_lock_path(PANE_ID)
-        contender = open(lock_path, "w")
+        contender = FileLock(lock_path)
         try:
-            fcntl.flock(contender, fcntl.LOCK_EX)
+            contender.acquire()
             with patch.object(ws_hook_supervisor, "spawn_ws_hook") as mock_spawn:
                 assert ws_hook_supervisor.maybe_respawn(PANE_ID) is False
                 mock_spawn.assert_not_called()
         finally:
-            fcntl.flock(contender, fcntl.LOCK_UN)
-            contender.close()
+            contender.release()
 
     def test_clears_pid_file_when_metadata_missing(self, cache_dir):
         # Dead pid but no usable metadata -- can't reconstruct the connect

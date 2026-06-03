@@ -13,7 +13,6 @@ import json
 import logging
 import os
 import re
-import subprocess
 import time
 from collections import deque
 from dataclasses import asdict, dataclass
@@ -33,6 +32,8 @@ from repowire.daemon import diagnostics as diag
 from repowire.daemon.delivery_trace import DeliveryTraceStore
 from repowire.daemon.event_log import EventLog
 from repowire.daemon.websocket_transport import TransportError
+from repowire.mux import current_mux_provider
+from repowire.platform.processes import ProcessInspector
 from repowire.protocol.peers import Peer, PeerRole, PeerStatus, TurnState
 
 if TYPE_CHECKING:
@@ -2306,27 +2307,12 @@ class PeerRegistry:
         checks only local process/tmux evidence and does not attempt any
         WebSocket recovery.
         """
-        if peer.agent_pid is not None:
-            try:
-                os.kill(peer.agent_pid, 0)
-                return True
-            except PermissionError:
-                return True
-            except OSError:
-                pass
+        if peer.agent_pid is not None and ProcessInspector.pid_exists(peer.agent_pid):
+            return True
 
         if not peer.pane_id:
             return False
-        try:
-            result = subprocess.run(
-                ["tmux", "display-message", "-t", peer.pane_id, "-p", "#{pane_pid}"],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-        except (FileNotFoundError, OSError, subprocess.SubprocessError):
-            return False
-        return result.returncode == 0 and bool(result.stdout.strip())
+        return current_mux_provider().get_pane_info(peer.pane_id) is not None
 
     async def _demote_unsafe_connected_peers(self) -> int:
         """Mark connected tmux peers OFFLINE if their pane is no longer safe."""

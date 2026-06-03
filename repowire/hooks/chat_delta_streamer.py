@@ -21,7 +21,6 @@ progressively instead of one big landing).
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import sys
@@ -30,6 +29,8 @@ from pathlib import Path
 from typing import Any
 
 from repowire.hooks.utils import daemon_post, pane_logs_dir
+from repowire.platform.locking import FileLock
+from repowire.platform.processes import ProcessInspector, terminate_pid
 from repowire.session.transcript import _summarize_tool_input
 
 POLL_INTERVAL_S = 0.2
@@ -65,13 +66,7 @@ def streamer_lock_path(pane_id: str) -> Path:
 
 def _pid_alive(pid: int) -> bool:
     """True if `pid` exists. EPERM counts as alive (foreign owner)."""
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
+    return ProcessInspector.pid_exists(pid)
 
 
 def terminate_live_streamer(pane_id: str, *, wait_s: float = 0.5) -> bool:
@@ -118,9 +113,7 @@ def terminate_live_streamer(pane_id: str, *, wait_s: float = 0.5) -> bool:
         pid_path.unlink()
     except OSError:
         pass
-    try:
-        os.kill(pid, 15)  # SIGTERM
-    except (ProcessLookupError, PermissionError):
+    if not terminate_pid(pid):
         return True
 
     deadline = time.monotonic() + wait_s
@@ -312,17 +305,10 @@ def run(
     """
     lock_path = streamer_lock_path(pane_id)
     pid_path = streamer_pid_path(pane_id)
-    try:
-        lock_fd = open(lock_path, "w")  # noqa: SIM115
-    except OSError as e:
-        print(f"chat-delta-streamer: lockfile open failed: {e}", file=sys.stderr)
-        return 1
+    lock = FileLock(lock_path)
 
     try:
-        try:
-            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            # Another streamer owns this pane. Don't touch pidfile or transcript.
+        if not lock.acquire(blocking=False):
             return 0
 
         try:
@@ -344,11 +330,7 @@ def run(
             except OSError:
                 pass
     finally:
-        try:
-            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
-        except OSError:
-            pass
-        lock_fd.close()
+        lock.release()
 
     return 0
 

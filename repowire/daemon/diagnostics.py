@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import socket
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Protocol
@@ -26,6 +25,7 @@ from typing import TYPE_CHECKING, Protocol
 from pydantic import BaseModel, Field
 
 from repowire.hooks.utils import read_pane_runtime_metadata
+from repowire.platform.processes import ProcessInspector
 from repowire.protocol.peers import Peer, PeerRole, PeerStatus, TurnState
 from repowire.spawn_ownership import probe_tmux_pane
 
@@ -161,13 +161,7 @@ class DoctorReport(BaseModel):
 
 def _agent_pid_alive(pid: int) -> bool:
     """Return whether ``pid`` is a live process (pid-specific, no tmux fallback)."""
-    try:
-        os.kill(pid, 0)
-    except PermissionError:
-        return True  # exists but owned by another user
-    except OSError:
-        return False
-    return True
+    return ProcessInspector.pid_exists(pid)
 
 
 def is_local_machine(peer: Peer, *, hostname: str | None = None) -> bool:

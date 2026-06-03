@@ -12,14 +12,17 @@ from typing import Literal
 # Service identifiers
 MACOS_LABEL = "io.repowire.daemon"
 LINUX_SERVICE_NAME = "repowire"
+WINDOWS_TASK_NAME = "RepowireDaemon"
 
 
-def get_platform() -> Literal["macos", "linux", "unsupported"]:
+def get_platform() -> Literal["macos", "linux", "windows", "unsupported"]:
     """Detect the current platform."""
     if sys.platform == "darwin":
         return "macos"
     elif sys.platform.startswith("linux"):
         return "linux"
+    elif sys.platform == "win32":
+        return "windows"
     return "unsupported"
 
 
@@ -366,6 +369,105 @@ def _get_linux_service_status() -> dict:
 
 
 # =============================================================================
+# Windows Task Scheduler
+# =============================================================================
+
+
+def _windows_task_command() -> str:
+    def ps_quote(value: str) -> str:
+        return "'" + value.replace("'", "''") + "'"
+
+    repowire_exec = _get_repowire_executable()
+    fallback_suffix = " -m repowire.cli"
+    if repowire_exec.endswith(fallback_suffix):
+        executable = repowire_exec[: -len(fallback_suffix)]
+        args = "-m repowire.cli serve"
+    else:
+        executable = repowire_exec
+        args = "serve"
+    script = (
+        f"Set-Location -LiteralPath {ps_quote(str(Path.home()))}; "
+        f"& {ps_quote(executable)} {args} *>> {ps_quote(str(_get_log_path()))}"
+    )
+    escaped_script = script.replace('"', '`"')
+    return f'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "{escaped_script}"'
+
+
+def _install_windows_service() -> tuple[bool, str]:
+    """Install daemon startup as a per-user Windows scheduled task."""
+    task_command = _windows_task_command()
+    subprocess.run(
+        ["schtasks", "/Delete", "/TN", WINDOWS_TASK_NAME, "/F"],
+        capture_output=True,
+        text=True,
+    )
+    result = subprocess.run(
+        [
+            "schtasks",
+            "/Create",
+            "/TN",
+            WINDOWS_TASK_NAME,
+            "/SC",
+            "ONLOGON",
+            "/TR",
+            task_command,
+            "/F",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False, f"Failed to create scheduled task: {result.stderr}"
+    return True, f"Service installed as scheduled task {WINDOWS_TASK_NAME}"
+
+
+def _uninstall_windows_service() -> tuple[bool, str]:
+    result = subprocess.run(
+        ["schtasks", "/Delete", "/TN", WINDOWS_TASK_NAME, "/F"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False, "Service is not installed"
+    return True, "Service stopped and removed"
+
+
+def _restart_windows_service() -> tuple[bool, str]:
+    status = _get_windows_service_status()
+    if not status.get("installed"):
+        return False, "Service is not installed"
+    subprocess.run(
+        ["schtasks", "/End", "/TN", WINDOWS_TASK_NAME],
+        capture_output=True,
+        text=True,
+    )
+    result = subprocess.run(
+        ["schtasks", "/Run", "/TN", WINDOWS_TASK_NAME],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False, f"Failed to restart service: {result.stderr}"
+    return True, "Service restarted"
+
+
+def _get_windows_service_status() -> dict:
+    result = subprocess.run(
+        ["schtasks", "/Query", "/TN", WINDOWS_TASK_NAME, "/FO", "LIST"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return {"installed": False, "running": False, "path": WINDOWS_TASK_NAME}
+    running = "Status:" in result.stdout and "Running" in result.stdout
+    return {
+        "installed": True,
+        "running": running,
+        "path": WINDOWS_TASK_NAME,
+    }
+
+
+# =============================================================================
 # Public API
 # =============================================================================
 
@@ -382,6 +484,8 @@ def install_service() -> tuple[bool, str]:
         return _install_macos_service()
     elif platform == "linux":
         return _install_linux_service()
+    elif platform == "windows":
+        return _install_windows_service()
     else:
         return False, f"Unsupported platform: {sys.platform}"
 
@@ -398,6 +502,8 @@ def uninstall_service() -> tuple[bool, str]:
         return _uninstall_macos_service()
     elif platform == "linux":
         return _uninstall_linux_service()
+    elif platform == "windows":
+        return _uninstall_windows_service()
     else:
         return False, f"Unsupported platform: {sys.platform}"
 
@@ -414,6 +520,8 @@ def restart_service() -> tuple[bool, str]:
         return _restart_macos_service()
     elif platform == "linux":
         return _restart_linux_service()
+    elif platform == "windows":
+        return _restart_windows_service()
     else:
         return False, f"Unsupported platform: {sys.platform}"
 
@@ -430,6 +538,8 @@ def get_service_status() -> dict:
         return _get_macos_service_status()
     elif platform == "linux":
         return _get_linux_service_status()
+    elif platform == "windows":
+        return _get_windows_service_status()
     else:
         return {
             "installed": False,

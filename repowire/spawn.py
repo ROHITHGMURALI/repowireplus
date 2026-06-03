@@ -11,6 +11,7 @@ from libtmux.exc import LibTmuxException, ObjectDoesNotExist
 
 from repowire.agent_backends import DEFAULT_SPAWN_COMMANDS
 from repowire.agent_types import AgentType
+from repowire.mux import MuxProviderKind, current_mux_provider
 from repowire.spawn_hints import write_hint
 
 # Default commands for each agent type
@@ -60,21 +61,7 @@ def spawn_peer(config: SpawnConfig) -> SpawnResult:
         ValueError: If agent type is unknown
         RuntimeError: If tmux operations fail
     """
-    server = libtmux.Server()
     display_name = config.display_name
-
-    # Get or create session (circle = tmux session name)
-    session = _get_or_create_session(server, config.circle)
-
-    # Find unique window name (append suffix if needed)
-    window_name = _unique_window_name(session, display_name)
-
-    # Create window with working directory
-    window = session.new_window(window_name=window_name, start_directory=config.path)
-    pane = window.active_pane
-
-    if pane is None:
-        raise RuntimeError("Failed to get active pane")
 
     # Determine command to run
     if config.command:
@@ -96,14 +83,21 @@ def spawn_peer(config: SpawnConfig) -> SpawnResult:
         pending_first_turn=bool(config.message),
     )
 
-    pane.send_keys(cmd, enter=True)
-
-    tmux_session = f"{config.circle}:{window_name}"
+    provider = current_mux_provider()
+    if provider.kind == MuxProviderKind.NONE:
+        raise RuntimeError("No terminal multiplexer available for spawn")
+    window_name = provider.unique_window_name(config.circle, display_name)
+    result = provider.spawn_window(
+        session_name=config.circle,
+        window_name=window_name,
+        cwd=config.path,
+        command=cmd,
+    )
 
     return SpawnResult(
-        display_name=window_name,
-        tmux_session=tmux_session,
-        pane_id=pane.id or "",
+        display_name=result.display_name,
+        tmux_session=result.tmux_session,
+        pane_id=result.pane_id,
         message=config.message,
     )
 
@@ -142,8 +136,9 @@ def attach_session(tmux_session: str) -> None:
     else:
         target = tmux_session
 
-    subprocess.run(["tmux", "select-window", "-t", target], check=False)
-    subprocess.run(["tmux", "attach-session", "-t", target.split(":")[0]], check=True)
+    mux_command = current_mux_provider().command or "tmux"
+    subprocess.run([mux_command, "select-window", "-t", target], check=False)
+    subprocess.run([mux_command, "attach-session", "-t", target.split(":")[0]], check=True)
 
 
 def kill_peer(tmux_session: str) -> bool:
@@ -181,13 +176,4 @@ def kill_pane(pane_id: str) -> bool:
     """
     if not pane_id:
         return False
-    try:
-        result = subprocess.run(
-            ["tmux", "kill-pane", "-t", pane_id],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return result.returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
+    return current_mux_provider().kill_pane(pane_id)

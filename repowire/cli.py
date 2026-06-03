@@ -286,7 +286,7 @@ def setup(
     else:
         console.print(f"[green]✓[/] Configured agents: {', '.join(agents_setup)}")
 
-    # Install tmux lifecycle hooks if tmux is available
+    # Install tmux-compatible lifecycle hooks if a mux is available.
     try:
         from repowire.hooks.tmux_lifecycle import install_hooks, is_tmux_available
 
@@ -296,9 +296,9 @@ def setup(
                 config.daemon.port,
             )
             if installed:
-                console.print(f"[green]✓[/] Tmux lifecycle hooks ({len(installed)} hooks)")
+                console.print(f"[green]✓[/] Mux lifecycle hooks ({len(installed)} hooks)")
     except Exception as e:
-        console.print(f"[dim]Tmux hooks skipped: {e}[/]")
+        console.print(f"[dim]Mux hooks skipped: {e}[/]")
 
     # Relay: flag, existing config, or interactive prompt
     if config.relay.enabled:
@@ -718,11 +718,17 @@ def status() -> None:
     from repowire.config.models import load_config
     from repowire.doctor import Status, check_update_availability
     from repowire.installers.claude_code import check_hooks_installed
+    from repowire.mux import resolve_mux_provider
     from repowire.service.installer import get_platform, get_service_status
 
     config = load_config()
+    mux_provider = resolve_mux_provider(config.daemon.mux)
     console.print("[cyan]Mode:[/] unified WebSocket")
     console.print(f"[cyan]Platform:[/] {get_platform()}")
+    console.print(
+        f"[cyan]Terminal mux:[/] {mux_provider.kind.value}"
+        f"{f' ({mux_provider.command})' if mux_provider.command else ''}"
+    )
     console.print("")
 
     update_result = check_update_availability(config)
@@ -4061,6 +4067,7 @@ def daemon_start(foreground: bool) -> None:
         import sys
 
         from repowire.config.models import load_config
+        from repowire.platform.processes import popen_detached_kwargs
 
         config = load_config()
         project_dir = Path(__file__).parent.parent
@@ -4070,8 +4077,8 @@ def daemon_start(foreground: bool) -> None:
             [sys.executable, "-m", "repowire.daemon.app"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
             cwd=str(project_dir),
+            **popen_detached_kwargs(),
         )
         console.print(f"[green]Daemon started in background on port {config.daemon.port}.[/]")
 
@@ -4199,7 +4206,7 @@ def service_install() -> None:
     platform = get_platform()
     if platform == "unsupported":
         console.print("[red]Unsupported platform for service installation.[/]")
-        console.print("Supported: macOS (launchd), Linux (systemd)")
+        console.print("Supported: macOS (launchd), Linux (systemd), Windows (Task Scheduler)")
         return
 
     console.print(f"[cyan]Installing repowire service ({platform})...[/]")
