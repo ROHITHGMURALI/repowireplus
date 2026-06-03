@@ -8,9 +8,10 @@ $ErrorActionPreference = "Stop"
 Write-Host "Installing repowire from RepowirePlus..."
 Write-Host ""
 
-$SourcePath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $GitUrl = if ($env:REPOWIREPLUS_GIT_URL) { $env:REPOWIREPLUS_GIT_URL } else { "git+https://github.com/ROHITHGMURALI/repowireplus.git" }
-$InstallTarget = if (Test-Path (Join-Path $SourcePath "pyproject.toml")) { $SourcePath } else { $GitUrl }
+$ScriptPath = $MyInvocation.MyCommand.Path
+$SourcePath = if ($ScriptPath) { Split-Path -Parent $ScriptPath } else { $null }
+$InstallTarget = if ($SourcePath -and (Test-Path (Join-Path $SourcePath "pyproject.toml"))) { $SourcePath } else { $GitUrl }
 
 function Find-Python {
     $candidates = @("python", "py")
