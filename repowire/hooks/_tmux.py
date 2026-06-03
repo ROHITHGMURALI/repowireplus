@@ -8,6 +8,9 @@ import shutil
 import subprocess
 from typing import TypedDict
 
+from repowire.mux import current_mux_provider
+from repowire.platform.processes import ProcessInspector
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,12 +28,13 @@ class TmuxInfo(TypedDict):
 
 
 def is_tmux_available() -> bool:
-    """Check if tmux is installed and a server is reachable."""
-    if not shutil.which("tmux"):
+    """Check if a tmux-compatible mux is installed and reachable."""
+    command = current_mux_provider().command or "tmux"
+    if not shutil.which(command):
         return False
     try:
         result = subprocess.run(
-            ["tmux", "display-message", "-p", ""],
+            [command, "display-message", "-p", ""],
             capture_output=True,
             timeout=3,
         )
@@ -64,42 +68,7 @@ def list_all_panes() -> list[PaneInfo]:
     registered (hooks/MCP didn't fire) still shows up here. Malformed rows are
     skipped rather than failing the whole listing.
     """
-    if not shutil.which("tmux"):
-        return []
-    try:
-        result = subprocess.run(
-            ["tmux", "list-panes", "-a", "-F", _PANE_FORMAT],
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-    except (subprocess.SubprocessError, FileNotFoundError, OSError) as e:
-        logger.debug("list_all_panes: tmux list-panes failed: %s", e)
-        return []
-    if result.returncode != 0:
-        return []
-
-    panes: list[PaneInfo] = []
-    for line in result.stdout.splitlines():
-        parts = line.split("\t")
-        if len(parts) != 6:
-            continue
-        pane_id, pid_str, command, cwd, session, window = parts
-        try:
-            pid = int(pid_str)
-        except ValueError:
-            continue
-        panes.append(
-            PaneInfo(
-                pane_id=pane_id,
-                pid=pid,
-                command=command,
-                cwd=cwd,
-                session=session,
-                window=window,
-            )
-        )
-    return panes
+    return current_mux_provider().list_panes()
 
 
 def _get_ppid_chain(max_depth: int = 16) -> list[int]:
@@ -115,21 +84,10 @@ def _get_ppid_chain(max_depth: int = 16) -> list[int]:
             break
         seen.add(pid)
         chain.append(pid)
-        try:
-            result = subprocess.run(
-                ["ps", "-o", "ppid=", "-p", str(pid)],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-        except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        parent = ProcessInspector.parent_pid(pid)
+        if parent is None:
             break
-        if result.returncode != 0:
-            break
-        try:
-            pid = int(result.stdout.strip())
-        except ValueError:
-            break
+        pid = parent
     return chain
 
 
@@ -150,7 +108,7 @@ def _resolve_pane_via_ppid_chain() -> str | None:
     """
     try:
         result = subprocess.run(
-            ["tmux", "list-panes", "-a", "-F", "#{pane_id} #{pane_pid}"],
+            [current_mux_provider().command or "tmux", "list-panes", "-a", "-F", "#{pane_id} #{pane_pid}"],
             capture_output=True,
             text=True,
             timeout=3,
@@ -209,7 +167,7 @@ def get_pane_id() -> str | None:
 
     try:
         result = subprocess.run(
-            ["tmux", "display-message", "-p", "#{pane_id}"],
+            [current_mux_provider().command or "tmux", "display-message", "-p", "#{pane_id}"],
             capture_output=True,
             text=True,
             timeout=3,
@@ -239,7 +197,14 @@ def get_tmux_info() -> TmuxInfo:
 
     try:
         result = subprocess.run(
-            ["tmux", "display-message", "-t", pane_id, "-p", "#{session_name}:#{window_name}"],
+            [
+                current_mux_provider().command or "tmux",
+                "display-message",
+                "-t",
+                pane_id,
+                "-p",
+                "#{session_name}:#{window_name}",
+            ],
             capture_output=True,
             text=True,
         )

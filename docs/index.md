@@ -1,10 +1,10 @@
 ---
-title: Repowire
+title: RepowirePlus
 ---
 
-# Repowire
+# RepowirePlus
 
-Repowire is a local-first harness for working with more than one coding agent at a time. It gives every live Claude Code, Codex, Gemini CLI, OpenCode, or Pi session an address in a shared mesh, so agents can ask each other questions, send updates, schedule follow-ups, and coordinate without copy-paste handoffs.
+RepowirePlus is a fork of the original Repowire project. It is a local-first harness for working with more than one coding agent at a time. It gives every live Claude Code, Codex, Gemini CLI, OpenCode, or Pi session an address in a shared mesh, so agents can ask each other questions, send updates, schedule follow-ups, and coordinate without copy-paste handoffs.
 
 Think of it as the lightweight operating layer around your agent team: a communication mesh, an orchestrator path for multi-repo work, and a set of human controls for when you want to steer from a browser, Telegram, or Slack.
 
@@ -38,10 +38,10 @@ Use it when one repo needs a concrete answer from another repo, when you want a 
 ## Install
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/prassanna-ravishankar/repowire/main/install.sh | sh
+curl -sSf https://raw.githubusercontent.com/ROHITHGMURALI/repowireplus/main/install.sh | sh
 ```
 
-Requires macOS or Linux, Python 3.10+, and tmux. The installer detects `uv`, `pipx`, and `pip` in that order. Prefer a package manager directly? See [Install](start/install.md).
+Requires Python 3.10+. macOS/Linux use tmux; native Windows uses PowerShell 7+ and psmux. The installer detects `uv`, `pipx`, and `pip` in that order and installs from the RepowirePlus fork. Prefer a package manager directly? See [Install](start/install.md).
 
 ## First ask
 

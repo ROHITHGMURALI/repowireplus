@@ -531,7 +531,10 @@ def create_app(
     async def shutdown(_: None = Depends(require_localhost)):
         """Shutdown the daemon gracefully. Restricted to localhost."""
         loop = asyncio.get_event_loop()
-        loop.call_later(0.5, lambda: os.kill(os.getpid(), signal.SIGTERM))
+        if os.name == "nt":
+            loop.call_later(0.5, lambda: os._exit(0))
+        else:
+            loop.call_later(0.5, lambda: os.kill(os.getpid(), signal.SIGTERM))
         return {"status": "shutting_down"}
 
     return app

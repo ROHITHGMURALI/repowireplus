@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from repowire.config.models import AgentType, Config
+from repowire.mux import current_mux_provider
 from repowire.protocol.peers import Peer, PeerRole
 
 logger = logging.getLogger(__name__)
@@ -352,7 +353,7 @@ def probe_tmux_pane(pane_id: str) -> TmuxPaneEvidence | None:
     try:
         result = subprocess.run(
             [
-                "tmux",
+                current_mux_provider().command or "tmux",
                 "display-message",
                 "-t",
                 pane_id,
@@ -361,6 +362,8 @@ def probe_tmux_pane(pane_id: str) -> TmuxPaneEvidence | None:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=2,
             check=False,
         )

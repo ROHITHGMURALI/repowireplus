@@ -11,6 +11,7 @@ from pathlib import Path
 from repowire.hooks._tmux import get_pane_id
 from repowire.hooks.adapters import hook_output, normalize
 from repowire.hooks.utils import get_display_name, update_status
+from repowire.platform.processes import popen_detached_kwargs
 
 
 def _maybe_spawn_chat_delta_streamer(
@@ -65,7 +66,7 @@ def _maybe_spawn_chat_delta_streamer(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            **popen_detached_kwargs(),
         )
     except OSError as e:
         print(

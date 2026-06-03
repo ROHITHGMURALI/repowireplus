@@ -29,6 +29,8 @@ from repowire.hooks.utils import (
     read_pane_runtime_metadata,
     write_pane_runtime_metadata,
 )
+from repowire.mux import current_mux_provider
+from repowire.platform.processes import ProcessInspector
 from repowire.protocol.capabilities import CURRENT_HOOK_CAPABILITIES, CURRENT_HOOK_VERSION
 
 logging.basicConfig(level=logging.INFO)
@@ -37,7 +39,7 @@ logger = logging.getLogger(__name__)
 # Set once at startup in main() — guards against pane reuse by a different agent
 _expected_command: str | None = None
 # PID of a process matching _expected_command found in the pane's subtree.
-# Cached so the steady-state safety check is os.kill(pid, 0), not a ps shell-out.
+# Cached so the steady-state safety check is a cheap pid-exists call.
 # Periodically revalidated via full subtree rescan to defend against PID reuse
 # (the hook can run for days; OS PIDs eventually wrap).
 _cached_agent_pid: int | None = None
@@ -86,7 +88,14 @@ def _pane_in_copy_mode(pane_id: str) -> bool:
     """
     try:
         result = subprocess.run(
-            ["tmux", "display-message", "-t", pane_id, "-p", "#{pane_in_mode}"],
+            [
+                current_mux_provider().command or "tmux",
+                "display-message",
+                "-t",
+                pane_id,
+                "-p",
+                "#{pane_in_mode}",
+            ],
             capture_output=True,
             text=True,
             timeout=5,
@@ -112,24 +121,36 @@ def _tmux_send_keys(pane_id: str, text: str) -> bool:
     try:
         if _pane_in_copy_mode(pane_id):
             subprocess.run(
-                ["tmux", "send-keys", "-t", pane_id, "-X", "cancel"],
+                [current_mux_provider().command or "tmux", "send-keys", "-t", pane_id, "-X", "cancel"],
                 capture_output=True,
                 check=True,
             )
         subprocess.run(
-            ["tmux", "send-keys", "-t", pane_id, "-l", text],
+            [current_mux_provider().command or "tmux", "send-keys", "-t", pane_id, "-l", text],
             capture_output=True,
             check=True,
         )
         time.sleep(0.5)
         subprocess.run(
-            ["tmux", "send-keys", "-t", pane_id, "-H", "1b", "5b", "32", "30", "31", "7e"],
+            [
+                current_mux_provider().command or "tmux",
+                "send-keys",
+                "-t",
+                pane_id,
+                "-H",
+                "1b",
+                "5b",
+                "32",
+                "30",
+                "31",
+                "7e",
+            ],
             capture_output=True,
             check=True,
         )
         time.sleep(0.1)
         subprocess.run(
-            ["tmux", "send-keys", "-t", pane_id, "Enter"],
+            [current_mux_provider().command or "tmux", "send-keys", "-t", pane_id, "Enter"],
             capture_output=True,
             check=True,
         )
@@ -143,7 +164,14 @@ def _get_pane_command(pane_id: str) -> str | None:
     """Get the current command running in a tmux pane."""
     try:
         result = subprocess.run(
-            ["tmux", "display-message", "-t", pane_id, "-p", "#{pane_current_command}"],
+            [
+                current_mux_provider().command or "tmux",
+                "display-message",
+                "-t",
+                pane_id,
+                "-p",
+                "#{pane_current_command}",
+            ],
             capture_output=True,
             text=True,
             timeout=5,
@@ -160,7 +188,14 @@ def _get_pane_pid(pane_id: str) -> int | None:
     """Return the pane's shell PID via tmux. None on failure."""
     try:
         result = subprocess.run(
-            ["tmux", "display-message", "-t", pane_id, "-p", "#{pane_pid}"],
+            [
+                current_mux_provider().command or "tmux",
+                "display-message",
+                "-t",
+                pane_id,
+                "-p",
+                "#{pane_pid}",
+            ],
             capture_output=True,
             text=True,
             timeout=5,
@@ -173,111 +208,17 @@ def _get_pane_pid(pane_id: str) -> int | None:
         return None
 
 
-def _build_ps_child_map() -> tuple[dict[int, list[int]], dict[int, str]] | None:
-    """Build (children, pid_to_comm) from one ps shell-out.
-
-    `children` maps {ppid: [pid, ...]}; `pid_to_comm` maps {pid: basename(comm)}.
-    Portable across macOS/Linux. `pgrep -P` is non-recursive on macOS so we
-    walk the tree ourselves. Returning the comm map alongside lets the BFS
-    check the root PID itself (in case the agent has `exec`'d to replace the
-    pane shell), not just descendants.
-    """
-    try:
-        result = subprocess.run(
-            ["ps", "-axo", "pid=,ppid=,comm="],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode != 0:
-            return None
-    except (FileNotFoundError, subprocess.SubprocessError, subprocess.TimeoutExpired):
-        return None
-
-    children: dict[int, list[int]] = {}
-    pid_to_comm: dict[int, str] = {}
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        # Format: "  pid ppid comm-with-spaces"
-        parts = line.split(None, 2)
-        if len(parts) < 3:
-            continue
-        try:
-            pid = int(parts[0])
-            ppid = int(parts[1])
-        except ValueError:
-            continue
-        comm = os.path.basename(parts[2].strip()).lower()
-        pid_to_comm[pid] = comm
-        children.setdefault(ppid, []).append(pid)
-    return children, pid_to_comm
-
-
 _SHELL_COMMS = frozenset({"bash", "zsh", "sh", "fish", "tcsh", "csh", "dash", "login"})
 
 
-def _find_agent_in_subtree(
-    root_pid: int,
-    expected: str,
-    children: dict[int, list[int]],
-    pid_to_comm: dict[int, str],
-) -> int | None:
-    """BFS the pane's subtree (including root_pid) for a process matching `expected`.
-
-    Returns the matching PID, or None. `expected` is matched case-insensitively
-    against the basename of `comm`. The root PID itself is checked first to
-    handle the case where the agent has `exec`'d to replace the pane shell
-    (rare but valid; otherwise the agent IS the pane_pid and would be missed).
-    """
-    target = expected.lower()
-    seen: set[int] = set()
-    queue: list[int] = [root_pid]
-    while queue:
-        pid = queue.pop(0)
-        if pid in seen:
-            continue
-        seen.add(pid)
-        if pid_to_comm.get(pid) == target:
-            return pid
-        for child_pid in children.get(pid, []):
-            queue.append(child_pid)
-    return None
-
-
-def _capture_baseline_from_subtree(
-    root_pid: int,
-    children: dict[int, list[int]],
-    pid_to_comm: dict[int, str],
-) -> str | None:
-    """BFS the pane's subtree from `root_pid`, return first non-shell comm.
+def _capture_baseline_from_subtree(root_pid: int) -> str | None:
+    """Return the first non-shell process command from the pane subtree.
 
     Used at hook startup to capture a stable agent baseline that doesn't depend
-    on tmux's `pane_current_command`. Tmux reads the kernel's exec name (ucomm),
-    while `ps -axo comm` reads BSD comm/argv[0]; these can disagree when an
-    agent ships as a per-version binary (e.g. Claude Code v2.1.138 installs at
-    ~/.local/share/claude/versions/2.1.138 with a `claude` symlink). Both
-    startup and steady-state safety checks must read from the same source —
-    `ps -axo comm` — so the baseline is captured here rather than from tmux.
-
-    Returns None if the subtree contains only shell processes (rare: SessionStart
-    fired before the agent process exists yet). Caller falls back to the
-    historic shell-denylist on the foreground command in that case.
+    on tmux's `pane_current_command`. Startup and steady-state safety checks
+    both use psutil's process model now, which is available on Windows too.
     """
-    seen: set[int] = set()
-    queue: list[int] = [root_pid]
-    while queue:
-        pid = queue.pop(0)
-        if pid in seen:
-            continue
-        seen.add(pid)
-        comm = pid_to_comm.get(pid)
-        if comm and comm not in _SHELL_COMMS:
-            return comm
-        for child_pid in children.get(pid, []):
-            queue.append(child_pid)
-    return None
+    return ProcessInspector.first_non_shell_command(root_pid, _SHELL_COMMS)
 
 
 def _is_pane_safe(pane_id: str) -> bool:
@@ -300,26 +241,15 @@ def _is_pane_safe(pane_id: str) -> bool:
     # takeover indefinitely on a long-lived hook.
     rescan_due = (_safety_check_count % _FAST_PATH_RESCAN_EVERY) == 0
     if _cached_agent_pid is not None and not rescan_due:
-        try:
-            os.kill(_cached_agent_pid, 0)
+        if ProcessInspector.pid_exists(_cached_agent_pid):
             return True
-        except ProcessLookupError:
-            _cached_agent_pid = None
-        except PermissionError:
-            # Process exists but isn't ours -- agents run as the same user, so
-            # EPERM means the cached PID got reused by some system process and
-            # we'd be masking a takeover. Drop the cache and rescan.
-            _cached_agent_pid = None
+        _cached_agent_pid = None
 
     if _expected_command:
         pane_pid = _get_pane_pid(pane_id)
         if pane_pid is None:
             return False
-        ps_result = _build_ps_child_map()
-        if ps_result is None:
-            return False
-        children, pid_to_comm = ps_result
-        match = _find_agent_in_subtree(pane_pid, _expected_command, children, pid_to_comm)
+        match = ProcessInspector.find_command_in_subtree(pane_pid, _expected_command)
         if match is None:
             # Drop any cached PID so future fast-path checks don't trust a
             # stale-but-alive process that no longer matches the pane subtree.
@@ -565,17 +495,14 @@ async def main() -> int:
 
     # Snapshot pane command at startup to detect pane reuse. Derive from a
     # subtree walk rather than tmux's pane_current_command so the baseline
-    # matches what `ps -axo comm` reports during steady-state safety checks
-    # (see _capture_baseline_from_subtree for why these can disagree).
+    # matches the steady-state safety check process model.
     global _expected_command, _cached_agent_pid
     pane_pid = _get_pane_pid(pane_id)
-    ps_result = _build_ps_child_map() if pane_pid is not None else None
-    if pane_pid is not None and ps_result is not None:
-        children, pid_to_comm = ps_result
-        _expected_command = _capture_baseline_from_subtree(pane_pid, children, pid_to_comm)
+    if pane_pid is not None:
+        _expected_command = _capture_baseline_from_subtree(pane_pid)
         if _expected_command:
-            _cached_agent_pid = _find_agent_in_subtree(
-                pane_pid, _expected_command, children, pid_to_comm,
+            _cached_agent_pid = ProcessInspector.find_command_in_subtree(
+                pane_pid, _expected_command
             )
     if _expected_command is None:
         # Fallback: no agent process found in the subtree yet (SessionStart

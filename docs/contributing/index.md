@@ -1,6 +1,6 @@
 # Contributing
 
-See [`CONTRIBUTING.md`](https://github.com/prassanna-ravishankar/repowire/blob/main/CONTRIBUTING.md) in the repository for the contribution workflow, code-quality gates, and release process.
+See [`CONTRIBUTING.md`](https://github.com/ROHITHGMURALI/repowireplus/blob/main/CONTRIBUTING.md) in the repository for the contribution workflow, code-quality gates, and release process.
 
 Before opening a PR from a checkout, run the advisory hygiene checklist:
 

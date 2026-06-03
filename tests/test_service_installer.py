@@ -33,6 +33,19 @@ def test_restart_service_dispatches_linux() -> None:
     mock_restart.assert_called_once_with()
 
 
+def test_restart_service_dispatches_windows() -> None:
+    with patch("repowire.service.installer.get_platform", return_value="windows"):
+        with patch(
+            "repowire.service.installer._restart_windows_service",
+            return_value=(True, "Service restarted"),
+        ) as mock_restart:
+            success, message = installer.restart_service()
+
+    assert success is True
+    assert message == "Service restarted"
+    mock_restart.assert_called_once_with()
+
+
 def test_restart_service_unsupported_platform() -> None:
     with patch("repowire.service.installer.get_platform", return_value="unsupported"):
         with patch.object(installer.sys, "platform", "unknown-os"):
@@ -148,3 +161,40 @@ def test_restart_linux_service_runs_systemctl_restart() -> None:
         capture_output=True,
         text=True,
     )
+
+
+def test_get_platform_detects_windows() -> None:
+    with patch.object(installer.sys, "platform", "win32"):
+        assert installer.get_platform() == "windows"
+
+
+def test_install_windows_service_uses_schtasks_create() -> None:
+    run_result = MagicMock(returncode=0, stderr="")
+
+    with (
+        patch("repowire.service.installer._get_repowire_executable", return_value="repowire"),
+        patch("repowire.service.installer._get_log_path", return_value=Path("C:/Users/test/.repowire/daemon.log")),
+        patch("repowire.service.installer.subprocess.run", return_value=run_result) as mock_run,
+    ):
+        success, message = installer._install_windows_service()
+
+    assert success is True
+    assert "RepowireDaemon" in message
+    args = mock_run.call_args.args[0]
+    assert args[:4] == ["schtasks", "/Create", "/TN", installer.WINDOWS_TASK_NAME]
+    assert "/SC" in args
+    assert "ONLOGON" in args
+    assert "/TR" in args
+    assert "repowire serve" in args[args.index("/TR") + 1]
+    assert "Set-Location" in args[args.index("/TR") + 1]
+
+
+def test_get_windows_service_status_parses_running_task() -> None:
+    query_result = MagicMock(returncode=0, stdout="TaskName: RepowireDaemon\r\nStatus: Running")
+
+    with patch("repowire.service.installer.subprocess.run", return_value=query_result):
+        status = installer._get_windows_service_status()
+
+    assert status["installed"] is True
+    assert status["running"] is True
+    assert status["path"] == installer.WINDOWS_TASK_NAME

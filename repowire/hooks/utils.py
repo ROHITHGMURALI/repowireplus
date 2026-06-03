@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import atexit
-import fcntl
 import json
 import os
 import sys
@@ -14,6 +13,7 @@ from pathlib import Path
 import httpx
 
 from repowire.config.models import DEFAULT_DAEMON_URL
+from repowire.platform.locking import FileLock
 
 DAEMON_URL = os.environ.get("REPOWIRE_DAEMON_URL", DEFAULT_DAEMON_URL)
 
@@ -67,19 +67,19 @@ def _locked_query_cids(pane_id: str) -> Iterator[list[str]]:
     path = pending_query_cid_path(pane_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_suffix(path.suffix + ".lock")
-    with open(lock_path, "w") as lock_file:
-        fcntl.flock(lock_file, fcntl.LOCK_EX)
+    lock = FileLock(lock_path)
+    lock.acquire(blocking=True)
+    try:
         try:
-            try:
-                pending = json.loads(path.read_text()) if path.exists() else []
-                if not isinstance(pending, list):
-                    pending = []
-            except (json.JSONDecodeError, OSError):
+            pending = json.loads(path.read_text()) if path.exists() else []
+            if not isinstance(pending, list):
                 pending = []
-            yield pending
-            path.write_text(json.dumps(pending))
-        finally:
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
+        except (json.JSONDecodeError, OSError):
+            pending = []
+        yield pending
+        path.write_text(json.dumps(pending))
+    finally:
+        lock.release()
 
 
 def push_query_cid(pane_id: str, correlation_id: str) -> None:

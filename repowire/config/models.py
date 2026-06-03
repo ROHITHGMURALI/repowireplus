@@ -17,6 +17,7 @@ from pydantic_settings import (
 
 from repowire.agent_backends import DEFAULT_SPAWN_COMMANDS as _DEFAULT_SPAWN_COMMANDS
 from repowire.agent_types import AgentType
+from repowire.mux import MuxProviderKind
 
 DEFAULT_SPAWN_COMMANDS = _DEFAULT_SPAWN_COMMANDS
 
@@ -194,6 +195,19 @@ class SpawnSettings(BaseModel):
         return self
 
 
+class MuxConfig(BaseModel):
+    """Terminal multiplexer provider settings."""
+
+    provider: MuxProviderKind = Field(
+        default=MuxProviderKind.AUTO,
+        description="Terminal multiplexer provider: auto, tmux, psmux, or none",
+    )
+    command: str | None = Field(
+        default=None,
+        description="Optional multiplexer command override",
+    )
+
+
 class OrchestratorRecallConfig(BaseModel):
     """Daemon-side inbound recall triage for orchestrator peers."""
 
@@ -298,6 +312,7 @@ class DaemonConfig(BaseModel):
 
     # Spawn settings
     spawn: SpawnSettings = Field(default_factory=SpawnSettings)
+    mux: MuxConfig = Field(default_factory=MuxConfig)
 
 
 _VALID_LOG_LEVELS = frozenset({"debug", "info", "warning", "error", "critical"})

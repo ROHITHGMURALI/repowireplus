@@ -1,20 +1,22 @@
 <div align="center">
   <picture>
-    <source srcset="https://raw.githubusercontent.com/prassanna-ravishankar/repowire/main/images/logo-dark.webp" media="(prefers-color-scheme: dark)" width="150" height="150" />
-    <img src="https://raw.githubusercontent.com/prassanna-ravishankar/repowire/main/images/logo-light.webp" alt="Repowire Logo" width="150" height="150" />
+    <source srcset="https://raw.githubusercontent.com/ROHITHGMURALI/repowireplus/main/images/logo-dark.webp" media="(prefers-color-scheme: dark)" width="150" height="150" />
+    <img src="https://raw.githubusercontent.com/ROHITHGMURALI/repowireplus/main/images/logo-light.webp" alt="RepowirePlus Logo" width="150" height="150" />
   </picture>
 
-  <h1>Repowire</h1>
+  <h1>RepowirePlus</h1>
   <p>Let your coding agents talk to each other.</p>
 
-  [![PyPI](https://img.shields.io/pypi/v/repowire)](https://pypi.org/project/repowire/)
-  [![CI](https://github.com/prassanna-ravishankar/repowire/actions/workflows/ci.yml/badge.svg)](https://github.com/prassanna-ravishankar/repowire/actions/workflows/ci.yml)
-  [![Python](https://img.shields.io/pypi/pyversions/repowire)](https://pypi.org/project/repowire/)
-  [![License](https://img.shields.io/pypi/l/repowire)](https://github.com/prassanna-ravishankar/repowire/blob/main/LICENSE)
-  [![Docs](https://img.shields.io/badge/docs-repowire.io-2563EB)](https://docs.repowire.io/)
+  [![Fork](https://img.shields.io/badge/fork-ROHITHGMURALI%2Frepowireplus-2563EB)](https://github.com/ROHITHGMURALI/repowireplus)
+  [![CI](https://github.com/ROHITHGMURALI/repowireplus/actions/workflows/ci.yml/badge.svg)](https://github.com/ROHITHGMURALI/repowireplus/actions/workflows/ci.yml)
+  [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](https://www.python.org/)
+  [![License](https://img.shields.io/github/license/ROHITHGMURALI/repowireplus)](https://github.com/ROHITHGMURALI/repowireplus/blob/main/LICENSE)
+  [![Docs](https://img.shields.io/badge/docs-in--repo-2563EB)](https://github.com/ROHITHGMURALI/repowireplus/tree/main/docs)
 </div>
 
-Repowire connects the coding agents you already have open. Claude Code in one repo, Codex in another, a dashboard in your browser, Telegram on your phone: Repowire gives them names and lets them pass messages without copy-paste.
+RepowirePlus is a fork of the original [Repowire](https://github.com/prassanna-ravishankar/repowire) project maintained at [ROHITHGMURALI/repowireplus](https://github.com/ROHITHGMURALI/repowireplus). It keeps the `repowire` CLI/package name while adding fork-specific work, including native Windows/psmux support.
+
+RepowirePlus connects the coding agents you already have open. Claude Code in one repo, Codex in another, a dashboard in your browser, Telegram on your phone: Repowire gives them names and lets them pass messages without copy-paste.
 
 It is a local control layer for multi-agent work: ask another agent a question, send a quick update, schedule a reminder, or run one session as the coordinator.
 
@@ -29,20 +31,31 @@ Repowire runs locally by default through a daemon on your machine. The hosted re
 
 ## Quickstart
 
-**Requirements:** macOS or Linux, Python 3.10+, tmux.
+**Requirements:** macOS or Linux with Python 3.10+ and tmux, or Windows 10/11
+with Python 3.10+, PowerShell 7+, and psmux.
 
-**1. Install Repowire and wire your agents.**
+**1. Install RepowirePlus and wire your agents.**
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/prassanna-ravishankar/repowire/main/install.sh | sh
+curl -sSf https://raw.githubusercontent.com/ROHITHGMURALI/repowireplus/main/install.sh | sh
 repowire setup
 ```
 
-The installer detects `uv`, `pipx`, and `pip` in that order.
+On native Windows:
+
+```powershell
+winget install psmux
+irm https://raw.githubusercontent.com/ROHITHGMURALI/repowireplus/main/install.ps1 | iex
+repowire setup
+```
+
+The installer detects `uv`, `pipx`, and `pip` in that order and installs from this fork.
 
 **2. Open your normal agent CLIs.**
 
-Use the tools directly; Repowire hooks into them after setup.
+Use the tools directly; Repowire hooks into them after setup. On Windows, run
+agent CLIs inside psmux so Repowire can target panes through the tmux-compatible
+`tmux.exe` alias.
 
 ```bash
 # tmux window 1
@@ -89,7 +102,7 @@ repowire agents create daily-brief --backend codex
 repowire jobs create "Daily brief" --path .repowire/agents/daily-brief --backend codex --cron "@daily" --prompt "Prepare the brief."
 ```
 
-Full docs: [docs.repowire.io](https://docs.repowire.io).
+Full docs live in [this repository](https://github.com/ROHITHGMURALI/repowireplus/tree/main/docs). The upstream hosted docs at [docs.repowire.io](https://docs.repowire.io) may not include RepowirePlus fork changes.
 
 ## What You Get
 
@@ -274,8 +287,8 @@ Security defaults:
 ## Developing From Source
 
 ```bash
-git clone https://github.com/prassanna-ravishankar/repowire
-cd repowire
+git clone https://github.com/ROHITHGMURALI/repowireplus
+cd repowireplus
 uv sync --extra dev
 uv tool install . --force-reinstall
 ```
@@ -288,7 +301,9 @@ repowire setup --non-interactive   # rewrites hooks/MCP/service to the installed
 repowire service restart           # enough when only daemon code changed
 ```
 
-If service management fails, use `repowire service status` first. Raw `launchctl` on macOS or `systemctl --user` on Linux are fallback troubleshooting tools.
+If service management fails, use `repowire service status` first. Raw `launchctl`
+on macOS, `systemctl --user` on Linux, or Task Scheduler on Windows are fallback
+troubleshooting tools.
 
 ## References
 
@@ -303,12 +318,41 @@ If service management fails, use `repowire service status` first. Raw `launchctl
 
 ## Uninstall
 
+First remove Repowire's runtime wiring:
+
 ```bash
 repowire uninstall
-uv tool uninstall repowire
 ```
 
-`repowire uninstall` removes hooks, MCP entries, channel transport config, OpenCode plugin files, and the daemon service. It does not automatically remove `~/.repowire/`, which contains local config, events, attachments, and relay keys.
+That removes hooks, MCP entries, channel transport config, OpenCode plugin files,
+and the daemon service. It does not remove the installed `repowire` CLI or local
+state.
+
+Then remove the installed CLI using the package manager you used:
+
+```bash
+uv tool uninstall repowire
+# or
+pipx uninstall repowire
+# or
+python -m pip uninstall repowire
+```
+
+On Windows, `repowire uninstall` removes the Task Scheduler service entry. If you
+only want to remove the service, run:
+
+```powershell
+repowire service uninstall
+```
+
+Optional local state cleanup:
+
+```bash
+rm -rf ~/.repowire
+```
+
+On Windows, remove `%USERPROFILE%\.repowire` if you want to delete local config,
+events, attachments, relay keys, and SQLite state.
 
 ## Contributing
 

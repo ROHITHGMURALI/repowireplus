@@ -1,8 +1,16 @@
 #!/bin/sh
-# Repowire installer — curl -sSf https://repowire.io/install | sh
+# RepowirePlus installer — curl -sSf https://raw.githubusercontent.com/ROHITHGMURALI/repowireplus/main/install.sh | sh
 set -e
 
-echo "Installing repowire..."
+REPOWIREPLUS_GIT_URL="${REPOWIREPLUS_GIT_URL:-git+https://github.com/ROHITHGMURALI/repowireplus.git}"
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+if [ -f "$script_dir/pyproject.toml" ] && grep -q 'name = "repowire"' "$script_dir/pyproject.toml" 2>/dev/null; then
+    install_target="$script_dir"
+else
+    install_target="$REPOWIREPLUS_GIT_URL"
+fi
+
+echo "Installing repowire from RepowirePlus..."
 echo ""
 
 # Check Python >= 3.10
@@ -35,24 +43,14 @@ fi
 
 # Install via uv > pipx > pip
 if command -v uv >/dev/null 2>&1; then
-    if command -v repowire >/dev/null 2>&1; then
-        echo "Upgrading via uv..."
-        uv tool upgrade repowire || uv tool install repowire --force
-    else
-        echo "Installing via uv..."
-        uv tool install repowire
-    fi
+    echo "Installing via uv from $install_target..."
+    uv tool install "$install_target" --force
 elif command -v pipx >/dev/null 2>&1; then
-    if command -v repowire >/dev/null 2>&1; then
-        echo "Upgrading via pipx..."
-        pipx upgrade repowire || pipx install --force repowire
-    else
-        echo "Installing via pipx..."
-        pipx install repowire
-    fi
+    echo "Installing via pipx from $install_target..."
+    pipx install "$install_target" --force
 elif "$python_cmd" -m pip --version >/dev/null 2>&1; then
-    echo "Installing/upgrading via pip..."
-    "$python_cmd" -m pip install --user -U repowire
+    echo "Installing/upgrading via pip from $install_target..."
+    "$python_cmd" -m pip install --user -U "$install_target"
     echo ""
     echo "Note: ensure ~/.local/bin is in your PATH"
 else
